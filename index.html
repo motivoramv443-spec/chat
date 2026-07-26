@@ -224,6 +224,17 @@
     padding:6px 13px;border-radius:16px;font-size:12.5px;white-space:nowrap;cursor:pointer;transition:all .15s;
     box-shadow:inset 0 1px 0 rgba(255,255,255,0.08);}
   .chip:active{border-color:var(--green-accent);color:var(--green-accent);}
+
+  .provider-switch{display:flex;align-items:center;gap:8px;padding:8px 16px;position:relative;z-index:5;
+    background:rgba(26,25,32,0.35);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);
+    border-bottom:1px solid var(--glass-border);flex-shrink:0;font-size:12px;color:var(--text-sub);}
+  .toggle-track{position:relative;width:52px;height:26px;border-radius:14px;background:rgba(255,255,255,0.08);
+    border:1px solid var(--glass-border);cursor:pointer;flex-shrink:0;transition:background .2s;}
+  .toggle-track.on{background:rgba(155,107,255,0.35);border-color:var(--green-accent);}
+  .toggle-thumb{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;
+    background:linear-gradient(135deg,#9b6bff,#e6e4ec);transition:left .2s;box-shadow:0 0 6px var(--green-glow);}
+  .toggle-track.on .toggle-thumb{left:28px;}
+  .provider-label{font-weight:600;color:var(--text-main);}
 </style>
 </head>
 <body>
@@ -300,6 +311,14 @@
       </div>
     </div>
 
+    <div class="provider-switch">
+      <span class="provider-label" id="providerLabelLeft">Qwen</span>
+      <div class="toggle-track" id="providerToggle" onclick="toggleProvider()">
+        <div class="toggle-thumb"></div>
+      </div>
+      <span class="provider-label" id="providerLabelRight">OpenRouter</span>
+    </div>
+
     <div class="quick-chips" id="quickChips">
       <div class="chip" onclick="sendQuick('Привет! Как ты?')">Привет, как ты? 😊</div>
       <div class="chip" onclick="sendQuick('Скучала по мне?')">Скучала по мне? 🥺</div>
@@ -361,10 +380,16 @@
 <div class="overlay" id="settingsOverlay">
   <div class="modal">
     <h2>Настройки</h2>
-    <p class="hint">Подключи API ключ Qwen, чтобы пообщаться с Алиной вживую.</p>
+    <p class="hint">Подключи API ключ, чтобы пообщаться с Алиной вживую. Можно настроить два провайдера и переключаться между ними в шапке чата.</p>
 
+    <h3>Провайдер 1 — Qwen (DashScope)</h3>
     <div class="field"><label>API ключ (DashScope)</label><input type="password" id="apiKeyInput" placeholder="sk-xxxxxxxx"></div>
     <div class="field"><label>Модель (нужна поддержка фото)</label><input type="text" id="modelInput" placeholder="qwen3.7-plus"></div>
+
+    <h3>Провайдер 2 — OpenRouter</h3>
+    <p class="hint" style="margin:-6px 0 12px 0;">Ключ храним только в этом браузере (localStorage) и отправляем только на официальный адрес openrouter.ai. Не вставляй сюда ключи, которыми не готов рискнуть — не публикуй и не выкладывай этот файл с уже введённым ключом.</p>
+    <div class="field"><label>API ключ (OpenRouter, sk-or-v1-...)</label><input type="password" id="openrouterKeyInput" placeholder="sk-or-v1-xxxxxxxx"></div>
+    <div class="field"><label>Модель</label><input type="text" id="openrouterModelInput" placeholder="qwen/qwen-2.5-vl-72b-instruct"></div>
 
     <h3>Профиль Алины</h3>
     <div class="field"><label>Описание</label><textarea id="alinaBioInput" rows="2"></textarea></div>
@@ -388,12 +413,28 @@
 
     <div class="divider"></div>
     <button class="btn btn-danger" onclick="confirmDeleteChat()">Удалить историю чата</button>
-    <p class="hint" style="margin-top:12px;">Ключ и переписка хранятся только в этом браузере и уходят только на официальный адрес Qwen (dashscope-intl.aliyuncs.com).</p>
+    <p class="hint" style="margin-top:12px;">Ключи и переписка хранятся только в этом браузере.</p>
   </div>
 </div>
 
 <script>
-const CHAT_ENDPOINT = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions";
+const PROVIDERS = {
+  qwen: {
+    label: "Qwen",
+    endpoint: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    keyStorageKey: "qwen_api_key",
+    modelStorageKey: "bot_model",
+    defaultModel: "qwen3.7-plus"
+  },
+  openrouter: {
+    label: "OpenRouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    keyStorageKey: "openrouter_api_key",
+    modelStorageKey: "openrouter_model",
+    defaultModel: "qwen/qwen-2.5-vl-72b-instruct"
+  }
+};
+
 const BOT_NAME = "† void †";
 const BOT_AGE = 18;
 const SLEEP_START_HOUR = 0;
@@ -401,8 +442,11 @@ const SLEEP_END_HOUR = 8;
 const PROACTIVE_GAP_MS = 60 * 60 * 1000; // 1 час
 
 let state = {
-  apiKey: localStorage.getItem("qwen_api_key") || "",
-  model: localStorage.getItem("bot_model") || "qwen3.7-plus",
+  provider: localStorage.getItem("active_provider") || "qwen",
+  apiKey: localStorage.getItem(PROVIDERS.qwen.keyStorageKey) || "",
+  model: localStorage.getItem(PROVIDERS.qwen.modelStorageKey) || PROVIDERS.qwen.defaultModel,
+  openrouterKey: localStorage.getItem(PROVIDERS.openrouter.keyStorageKey) || "",
+  openrouterModel: localStorage.getItem(PROVIDERS.openrouter.modelStorageKey) || PROVIDERS.openrouter.defaultModel,
   alinaBio: localStorage.getItem("alina_bio") || "Люблю музыку, долгие переписки и уютные вечера 🎧✨",
   myName: localStorage.getItem("my_name") || "",
   myAge: localStorage.getItem("my_age") || "18",
@@ -419,6 +463,37 @@ let busy = false; // блокирует одновременные запрос�
 const chatEl = document.getElementById("chat");
 const inputEl = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
+
+/* ---------- активный провайдер ---------- */
+function activeProviderKey(){
+  return state.provider === "openrouter" ? state.openrouterKey : state.apiKey;
+}
+function activeProviderModel(){
+  return state.provider === "openrouter" ? state.openrouterModel : state.model;
+}
+function activeProviderEndpoint(){
+  return PROVIDERS[state.provider].endpoint;
+}
+function hasAnyKey(){
+  return !!(state.apiKey || state.openrouterKey);
+}
+
+function renderProviderSwitch(){
+  const track = document.getElementById("providerToggle");
+  const isOR = state.provider === "openrouter";
+  track.classList.toggle("on", isOR);
+  document.getElementById("providerLabelLeft").style.opacity = isOR ? 0.45 : 1;
+  document.getElementById("providerLabelRight").style.opacity = isOR ? 1 : 0.45;
+}
+
+function toggleProvider(){
+  state.provider = state.provider === "qwen" ? "openrouter" : "qwen";
+  localStorage.setItem("active_provider", state.provider);
+  renderProviderSwitch();
+  if(!activeProviderKey()){
+    openSettings();
+  }
+}
 
 /* ---------- время / сон ---------- */
 function kyivHour(){
@@ -459,6 +534,7 @@ function renderHeader(){
   document.getElementById("myMainProfileName").textContent = state.myName || "Пользователь";
   document.getElementById("myMainProfileBio").textContent = state.myBio || "В сети";
   updateStatusBadge();
+  renderProviderSwitch();
 }
 
 const ONLINE_WINDOW_MS = 5 * 60 * 1000; // 5 минут после последнего сообщения — считаем, что она "в сети"
@@ -496,7 +572,7 @@ function fmtTime(ts){
 function renderMessages(){
   chatEl.innerHTML = "";
   if(state.history.length === 0){
-    if(!state.apiKey){
+    if(!hasAnyKey()){
       const empty = document.createElement("div");
       empty.className = "empty-state";
       empty.innerHTML = '<span class="em">🥺</span>Добавь API-ключ в настройках, чтобы она могла тебе написать ✨';
@@ -577,12 +653,21 @@ function clearPendingImage(){
 
 function sendQuick(text){ inputEl.value = text; autoGrow(); sendMessage(); }
 
-/* ---------- основной запрос к Qwen ---------- */
-async function callQwen(apiMessages){
-  const res = await fetch(CHAT_ENDPOINT, {
+/* ---------- основной запрос к провайдеру ---------- */
+async function callProvider(apiMessages){
+  const key = activeProviderKey();
+  const model = activeProviderModel();
+  const endpoint = activeProviderEndpoint();
+  const headers = {"Content-Type":"application/json","Authorization":"Bearer "+key};
+  if(state.provider === "openrouter"){
+    // OpenRouter просит указывать источник запроса — не обязательно, но полезно для их статистики
+    headers["HTTP-Referer"] = location.href;
+    headers["X-Title"] = "void-chat-app";
+  }
+  const res = await fetch(endpoint, {
     method:"POST",
-    headers:{"Content-Type":"application/json","Authorization":"Bearer "+state.apiKey},
-    body: JSON.stringify({model: state.model, messages: apiMessages})
+    headers: headers,
+    body: JSON.stringify({model: model, messages: apiMessages})
   });
   if(!res.ok){
     const errText = await res.text();
@@ -621,13 +706,13 @@ async function pushAssistantReply(replyText){
 async function maybeHandleWakeUp(){
   if(!meta.sleepPending) return;
   if(isSleepTime()) return;
-  if(!state.apiKey) return;
+  if(!activeProviderKey()) return;
   if(busy) return;
   busy = true;
   showTyping();
   try{
     const instruction = "Собеседник писал тебе, пока ты спала (с 00:00 до 08:00 по Киеву). Ты только что проснулась. Извинись коротко и естественно, что спала, и ответь на то, что он написал.";
-    const reply = await callQwen(buildContextMessages(instruction));
+    const reply = await callProvider(buildContextMessages(instruction));
     await pushAssistantReply(reply);
   }catch(err){
     hideTyping();
@@ -650,7 +735,7 @@ function addSleepNote(){
 /* ---------- первый подкат: она пишет первой ---------- */
 async function maybeSendFirstContact(){
   if(meta.firstContactSent) return;
-  if(!state.apiKey || busy) return;
+  if(!activeProviderKey() || busy) return;
   if(isSleepTime()) return;
   if(state.history.length > 0) return;
 
@@ -658,7 +743,7 @@ async function maybeSendFirstContact(){
   showTyping();
   try{
     const instruction = "Это самое первое сообщение между вами, переписки ещё не было. Ты первая решила ему написать — как будто увидела его профиль/фото и он тебе понравился, и ты слегка кокетливо подкатываешь, будто заигрываешь, с лёгким любопытством и интересом. Никаких дежурных 'привет, как дела' — сделай это живо и с характером. Одно короткое сообщение.";
-    const reply = await callQwen(buildContextMessages(instruction));
+    const reply = await callProvider(buildContextMessages(instruction));
     meta.firstContactSent = true;
     saveMeta();
     await pushAssistantReply(reply);
@@ -671,7 +756,7 @@ async function maybeSendFirstContact(){
 
 /* ---------- проактивные сообщения ---------- */
 async function maybeSendProactive(){
-  if(!state.apiKey || busy) return;
+  if(!activeProviderKey() || busy) return;
   if(isSleepTime()) return;
   if(state.history.length === 0) return;
   if(meta.sleepPending) return;
@@ -684,7 +769,7 @@ async function maybeSendProactive(){
   showTyping();
   try{
     const instruction = "Собеседник молчит уже больше часа. Напиши от себя одно короткое сообщение первой — например, что скучаешь, или спроси что-то, как будто сама вспомнила о нём. Только одно сообщение.";
-    const reply = await callQwen(buildContextMessages(instruction));
+    const reply = await callProvider(buildContextMessages(instruction));
     await pushAssistantReply(reply);
     meta.proactiveSentAt = Date.now();
     saveMeta();
@@ -699,7 +784,7 @@ async function maybeSendProactive(){
 async function sendMessage(){
   const text = inputEl.value.trim();
   if(!text && !pendingImage) return;
-  if(!state.apiKey){ openSettings(); return; }
+  if(!activeProviderKey()){ openSettings(); return; }
   if(busy) return;
 
   await maybeHandleWakeUp();
@@ -727,13 +812,19 @@ async function sendMessage(){
   sendBtn.disabled = true;
   showTyping();
   try{
-    const reply = await callQwen(buildContextMessages());
+    const reply = await callProvider(buildContextMessages());
     await pushAssistantReply(reply);
     meta.proactiveSentAt = null;
     saveMeta();
   }catch(err){
     hideTyping();
-    state.history.push({role:"assistant", content:"Ой, ошибка какая-то... Проверь ключик в настройках, ладно? 🥺", ts:Date.now()});
+    console.error("Provider error ("+state.provider+"):", err);
+    // Если основной провайдер молчит/ошибся, а второй настроен и ещё не пробовали — предложим переключиться
+    const otherProvider = state.provider === "qwen" ? "openrouter" : "qwen";
+    const otherHasKey = otherProvider === "qwen" ? !!state.apiKey : !!state.openrouterKey;
+    const hint = otherHasKey ? " Можешь переключить провайдера переключателем сверху 👆" : "";
+    const details = err && err.message ? "\n\n[debug] " + err.message : "";
+    state.history.push({role:"assistant", content:"Ой, ошибка какая-то... Проверь ключик в настройках, ладно? 🥺"+hint+details, ts:Date.now()});
     saveHistory(); renderMessages();
   }finally{
     sendBtn.disabled = false;
@@ -762,7 +853,7 @@ function switchTab(tabId, btnEl){
 function openChat(){
   document.getElementById('screen-chat').classList.add('active');
   document.getElementById('navBar').style.display = 'none';
-  renderMessages(); updateStatusBadge();
+  renderMessages(); updateStatusBadge(); renderProviderSwitch();
   maybeSendFirstContact();
 }
 function closeChat(){
@@ -774,6 +865,8 @@ function closeChat(){
 function openSettings(){
   document.getElementById("apiKeyInput").value = state.apiKey;
   document.getElementById("modelInput").value = state.model;
+  document.getElementById("openrouterKeyInput").value = state.openrouterKey;
+  document.getElementById("openrouterModelInput").value = state.openrouterModel;
   document.getElementById("alinaBioInput").value = state.alinaBio;
   document.getElementById("myNameInput").value = state.myName;
   document.getElementById("myAgeInput").value = state.myAge;
@@ -795,14 +888,18 @@ function handleMyAvatarSelect(event){
 
 function saveSettings(){
   state.apiKey = document.getElementById("apiKeyInput").value.trim();
-  state.model = document.getElementById("modelInput").value.trim() || "qwen3.7-plus";
+  state.model = document.getElementById("modelInput").value.trim() || PROVIDERS.qwen.defaultModel;
+  state.openrouterKey = document.getElementById("openrouterKeyInput").value.trim();
+  state.openrouterModel = document.getElementById("openrouterModelInput").value.trim() || PROVIDERS.openrouter.defaultModel;
   state.alinaBio = document.getElementById("alinaBioInput").value.trim() || state.alinaBio;
   state.myName = document.getElementById("myNameInput").value.trim();
   state.myAge = document.getElementById("myAgeInput").value.trim() || "18";
   state.myBio = document.getElementById("myBioInput").value.trim();
 
-  localStorage.setItem("qwen_api_key", state.apiKey);
-  localStorage.setItem("bot_model", state.model);
+  localStorage.setItem(PROVIDERS.qwen.keyStorageKey, state.apiKey);
+  localStorage.setItem(PROVIDERS.qwen.modelStorageKey, state.model);
+  localStorage.setItem(PROVIDERS.openrouter.keyStorageKey, state.openrouterKey);
+  localStorage.setItem(PROVIDERS.openrouter.modelStorageKey, state.openrouterModel);
   localStorage.setItem("alina_bio", state.alinaBio);
   localStorage.setItem("my_name", state.myName);
   localStorage.setItem("my_age", state.myAge);
@@ -831,7 +928,7 @@ function closeProfileModal(){ document.getElementById("profileView").classList.r
 /* ---------- фоновая проверка раз в минуту: сон / пробуждение / проактивные сообщения ---------- */
 setInterval(async ()=>{
   updateStatusBadge();
-  if(!state.apiKey) return;
+  if(!activeProviderKey()) return;
   await maybeHandleWakeUp();
   await maybeSendProactive();
 }, 60 * 1000);
