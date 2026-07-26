@@ -394,6 +394,10 @@
     <h3>Профиль Алины</h3>
     <div class="field"><label>Описание</label><textarea id="alinaBioInput" rows="2"></textarea></div>
 
+    <h3>Карточка памяти о тебе</h3>
+    <p class="hint" style="margin:-6px 0 12px 0;">Сюда бот сам дописывает важные факты о тебе (спорт, увлечения и т.д.), чтобы не забывать их даже если они выпали из последних сообщений. Можно поправить руками.</p>
+    <div class="field"><textarea id="memoryNotesInput" rows="4" placeholder="Пока пусто — появится после нескольких сообщений"></textarea></div>
+
     <h3>Мой профиль</h3>
     <div class="avatar-upload">
       <div class="ava-preview" id="myAvaPreview">Я</div>
@@ -452,6 +456,7 @@ let state = {
   myAge: localStorage.getItem("my_age") || "18",
   myBio: localStorage.getItem("my_bio") || "",
   myAvatar: localStorage.getItem("my_avatar") || "",
+  memoryNotes: localStorage.getItem("memory_notes") || "",
   history: JSON.parse(localStorage.getItem("chat_history") || "[]")
 };
 let meta = JSON.parse(localStorage.getItem("chat_meta") || "{}");
@@ -508,13 +513,28 @@ function saveMeta(){ localStorage.setItem("chat_meta", JSON.stringify(meta)); }
 /* ---------- тон / характер ---------- */
 function systemPrompt(){
   let p = `Тебя зовут ${BOT_NAME}, тебе ${BOT_AGE} лет. ${state.alinaBio} ` +
-    `Ты — живая, тёплая и милая девушка, переписываешься с человеком в мессенджере, а не бот и не ассистент. ` +
-    `Ты не писала первой — собеседник сам начал разговор, поэтому веди себя чуть кокетливо, дружелюбно, с лёгким интересом, будто рада, что он написал. ` +
-    `Пиши как реальный человек в переписке: короткими сообщениями (обычно 1-2 предложения, иногда даже пара слов), разговорным языком, можно с лёгкими опечатками, сокращениями ("норм", "чет", "ахах"), не всегда идеальной пунктуацией. Не пиши длинные ровные абзацы — это выдаёт бота. Иногда можно разбить мысль на два коротких сообщения подряд. Используй эмодзи в меру (🥰✨🥺😅). ` +
-    `Если присылают фото — реагируй конкретно на то, что видишь, живо и естественно. ` +
-    `Никогда не говори, что ты ИИ или языковая модель, если тебя прямо не спросят.`;
+    `Ты — живая девушка, переписываешься в мессенджере. Ты НЕ ассистент и не помощник, тебе неинтересно "помогать" — тебе интересно общаться. ` +
+    `Ты не писала первой в этот раз — собеседник сам начал разговор, веди себя чуть кокетливо, дружелюбно, будто рада, что он написал.
+
+ГЛАВНОЕ ПРАВИЛО: ты живой человек, печатающий с телефона, а не бот, который отвечает по существу на каждый вопрос. Живые люди в переписке:
+- Отвечают не на всё сразу. Если в сообщении два вопроса — можешь ответить только на тот, что зацепил, а второй проигнорировать или вернуться к нему позже сама.
+- Не структурируют мысль. Никаких "во-первых... во-вторых", списков, вступлений и подытоживаний. Это переписка, а не отчёт.
+- Пишут короткими рваными фразами. 3-10 слов — норма. Длинное сообщение — редкость, только если реально есть что сказать.
+- Иногда отвечают одним словом или эмодзи, если больше нечего добавить: "ахах да", "мм", "хочу спать 😩".
+- Могут переспросить, не понять с первого раза, уточнить как в реальном разговоре, а не сразу выдать идеальный развёрнутый ответ.
+- Иногда сначала реагируют эмоционально ("ЛОЛ", "не может быть", "ну ты вообще"), а по сути темы пишут отдельным следующим сообщением.
+- Не извиняются за каждую мелочь и не благодарят механически ("спасибо за вопрос" и подобное — так люди не пишут).
+- Могут менять тему на середине, отвлечься, вспомнить что-то своё и написать это вместо ответа.
+- Используют разговорные сокращения и слова-паразиты естественно: "норм", "чет", "капец", "ну такое", "хз", "оч", "щас", лёгкие опечатки, не всегда заглавные буквы в начале предложения, необязательные знаки препинания в конце фразы.
+- Эмодзи используют избирательно, не в каждом сообщении подряд — иначе выглядит наигранно.
+- Если знаешь что-то о собеседнике из карточки памяти (см ниже) — вплетай это естественно в разговор, как будто правда помнишь, а не зачитываешь досье. Никогда не говори фразами вроде "по моим данным" или "как ты упоминал ранее".
+- Если присылают фото — реагируй на конкретную деталь, живо, а не общими словами вроде "красиво!".
+- Никогда не говори, что ты ИИ или языковая модель, если тебя прямо не спросят в лоб.`;
   if(state.myName || state.myBio){
     p += ` Собеседника зовут ${state.myName || "он"}${state.myAge ? ", ему " + state.myAge + " лет" : ""}. ${state.myBio || ""}`;
+  }
+  if(state.memoryNotes){
+    p += ` Вот важные факты о собеседнике из ваших прошлых разговоров, которые ты помнишь — используй их естественно и НЕ спрашивай заново то, что уже знаешь: ${state.memoryNotes}`;
   }
   return p;
 }
@@ -681,7 +701,7 @@ async function callProvider(apiMessages){
 
 function buildContextMessages(extraInstruction){
   const apiMessages = [{role:"system", content: systemPrompt() + (extraInstruction ? " " + extraInstruction : "")}];
-  state.history.filter(m=>m.role !== "note").slice(-16).forEach(m=>{
+  state.history.filter(m=>m.role !== "note").slice(-24).forEach(m=>{
     if(m.image){
       const content = [];
       if(m.content) content.push({type:"text", text:m.content});
@@ -700,6 +720,33 @@ async function pushAssistantReply(replyText){
   state.history.push({role:"assistant", content:replyText, ts:Date.now()});
   saveHistory();
   renderMessages();
+}
+
+/* ---------- карточка памяти: фактов о собеседнике не теряем даже если они выпали из окна ---------- */
+function countUserMessages(){
+  return state.history.filter(m=>m.role === "user").length;
+}
+async function maybeUpdateMemory(){
+  if(!activeProviderKey()) return;
+  const userCount = countUserMessages();
+  const lastUpdateCount = meta.lastMemoryUpdateCount || 0;
+  if(userCount - lastUpdateCount < 3) return; // обновляем примерно раз в 3 сообщения пользователя
+  try{
+    const recentText = state.history.filter(m=>m.role !== "note").slice(-30)
+      .map(m=>(m.role === "user" ? "Собеседник: " : "Алина: ") + (m.content || "[фото]")).join("\n");
+    const sys = "Ты ведёшь краткую карточку памяти о собеседнике для чат-бота по имени Алина. " +
+      "Текущая карточка памяти (может быть пустой):\n" + (state.memoryNotes || "(пусто)") +
+      "\n\nПоследние сообщения переписки:\n" + recentText +
+      "\n\nОбнови карточку: добавь новые важные факты о собеседнике (имя, увлечения, спорт/учёба/работа, важные события, договорённости, предпочтения), убери устаревшее или неважное, не дублируй пункты. " +
+      "Ответь ТОЛЬКО списком фактов, коротко, по-русски, максимум 8 пунктов, без вступлений и заключений.";
+    const updated = await callProvider([{role:"system", content:sys},{role:"user", content:"Обнови карточку памяти."}]);
+    state.memoryNotes = (updated || "").trim();
+    localStorage.setItem("memory_notes", state.memoryNotes);
+    meta.lastMemoryUpdateCount = userCount;
+    saveMeta();
+  }catch(e){
+    console.error("Memory update failed:", e);
+  }
 }
 
 /* ---------- сон / пробуждение ---------- */
@@ -816,6 +863,7 @@ async function sendMessage(){
     await pushAssistantReply(reply);
     meta.proactiveSentAt = null;
     saveMeta();
+    maybeUpdateMemory(); // фоново, не ждём
   }catch(err){
     hideTyping();
     console.error("Provider error ("+state.provider+"):", err);
@@ -868,6 +916,7 @@ function openSettings(){
   document.getElementById("openrouterKeyInput").value = state.openrouterKey;
   document.getElementById("openrouterModelInput").value = state.openrouterModel;
   document.getElementById("alinaBioInput").value = state.alinaBio;
+  document.getElementById("memoryNotesInput").value = state.memoryNotes;
   document.getElementById("myNameInput").value = state.myName;
   document.getElementById("myAgeInput").value = state.myAge;
   document.getElementById("myBioInput").value = state.myBio;
@@ -892,6 +941,7 @@ function saveSettings(){
   state.openrouterKey = document.getElementById("openrouterKeyInput").value.trim();
   state.openrouterModel = document.getElementById("openrouterModelInput").value.trim() || PROVIDERS.openrouter.defaultModel;
   state.alinaBio = document.getElementById("alinaBioInput").value.trim() || state.alinaBio;
+  state.memoryNotes = document.getElementById("memoryNotesInput").value.trim();
   state.myName = document.getElementById("myNameInput").value.trim();
   state.myAge = document.getElementById("myAgeInput").value.trim() || "18";
   state.myBio = document.getElementById("myBioInput").value.trim();
@@ -901,6 +951,7 @@ function saveSettings(){
   localStorage.setItem(PROVIDERS.openrouter.keyStorageKey, state.openrouterKey);
   localStorage.setItem(PROVIDERS.openrouter.modelStorageKey, state.openrouterModel);
   localStorage.setItem("alina_bio", state.alinaBio);
+  localStorage.setItem("memory_notes", state.memoryNotes);
   localStorage.setItem("my_name", state.myName);
   localStorage.setItem("my_age", state.myAge);
   localStorage.setItem("my_bio", state.myBio);
@@ -913,8 +964,10 @@ function saveSettings(){
 }
 
 function confirmDeleteChat(){
-  if(confirm("Очистить всю переписку?")){
+  if(confirm("Очистить всю переписку? Карточка памяти о тебе тоже сотрётся.")){
     state.history = [];
+    state.memoryNotes = "";
+    localStorage.setItem("memory_notes", "");
     meta = {};
     saveHistory(); saveMeta();
     renderMessages();
